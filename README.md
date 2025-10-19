@@ -4,12 +4,12 @@ A real-time screen sharing and audio streaming platform built with Next.js, Node
 
 ## Features
 
-- 🎥 Real-time screen sharing with audio
-- 🔄 WebRTC peer-to-peer connections
-- 🔌 Socket.io signaling server for ICE candidate exchange
-- 👥 Multi-user support in rooms
-- 📱 Responsive design
-- 🎨 Modern UI with gradient styling
+- Real-time screen sharing with audio
+- WebRTC peer-to-peer connections
+- Socket.io signaling server for ICE candidate exchange
+- Multi-user support in rooms
+- Responsive design
+- Modern UI with gradient styling
 
 ## Tech Stack
 
