@@ -275,9 +275,28 @@ export default function RoomPage() {
                 (peerId: string, stream: MediaStream) => {
                     // Handle incoming remote stream from other users
                     console.log("Received remote stream from:", peerId);
+                    console.log("Stream tracks:", stream.getTracks().map(t => `${t.kind}: ${t.enabled}, readyState: ${t.readyState}`));
+
                     if (remoteVideoRef.current) {
+                        console.log("Setting remote video srcObject with stream:", stream);
                         remoteVideoRef.current.srcObject = stream;
                         setSharingPeerId(peerId);
+
+                        // Add event listeners for debugging
+                        remoteVideoRef.current.onloadedmetadata = () => {
+                            console.log("Remote video metadata loaded");
+                        };
+
+                        remoteVideoRef.current.oncanplay = () => {
+                            console.log("Remote video can play");
+                        };
+
+                        // Ensure the remote video plays
+                        remoteVideoRef.current.play().then(() => {
+                            console.log("Remote video started playing successfully");
+                        }).catch(err => {
+                            console.error("Error playing remote video:", err);
+                        });
                     }
                 },
                 (peerId: string) => {
@@ -293,15 +312,72 @@ export default function RoomPage() {
             webrtcManagerRef.current = manager;
 
             // Start screen sharing
+            console.log("About to call startScreenShare...");
             const stream = await manager.startScreenShare();
+            console.log("startScreenShare returned:", stream);
 
-            // Display local stream
-            if (localVideoRef.current) {
-                localVideoRef.current.srcObject = stream;
+            if (!stream) {
+                console.error("ERROR: stream is null!");
+                setStatusMessage("Error: Failed to get screen share stream");
+                return;
             }
 
+            console.log("Stream obtained successfully!");
+            console.log("Stream ID:", stream.id);
+            console.log("Stream active:", stream.active);
+
+            const videoTracks = stream.getVideoTracks();
+            if (videoTracks.length === 0) {
+                console.error("ERROR: No video tracks in stream!");
+                setStatusMessage("Error: No video track available");
+                return;
+            }
+
+            console.log("Video track enabled:", videoTracks[0].enabled);
+            console.log("Video track readyState:", videoTracks[0].readyState);
+
+            // CRITICAL FIX: Set isSharing to TRUE first to render the video element
             setIsSharing(true);
             setStatusMessage("Screen sharing started");
+
+            // Wait for React to render the video element
+            setTimeout(() => {
+                console.log("Attempting to set video srcObject after render...");
+                console.log("localVideoRef.current exists:", !!localVideoRef.current);
+
+                if (localVideoRef.current) {
+                    // Force clear any existing stream
+                    if (localVideoRef.current.srcObject) {
+                        const oldStream = localVideoRef.current.srcObject as MediaStream;
+                        oldStream.getTracks().forEach(track => track.stop());
+                    }
+
+                    // Set the stream
+                    localVideoRef.current.srcObject = stream;
+                    localVideoRef.current.muted = true;
+
+                    // Force load and play
+                    localVideoRef.current.onloadedmetadata = async () => {
+                        console.log("Video metadata loaded!");
+                        console.log("Dimensions:", localVideoRef.current?.videoWidth, "x", localVideoRef.current?.videoHeight);
+                        try {
+                            if (localVideoRef.current) {
+                                await localVideoRef.current.play();
+                                console.log("Video is playing!");
+                            }
+                        } catch (e) {
+                            console.error("Play failed:", e);
+                        }
+                    };
+
+                    // Try to play immediately
+                    localVideoRef.current.play()
+                        .then(() => console.log("Immediate play successful!"))
+                        .catch(err => console.warn("Immediate play failed, waiting for metadata:", err));
+                } else {
+                    console.error("ERROR: Video element still not found after timeout!");
+                }
+            }, 100); // Give React 100ms to render the video element
 
             // Notify others that we started sharing
             socket.emit("start-sharing", roomId, userId);
@@ -475,7 +551,20 @@ export default function RoomPage() {
                                     autoPlay
                                     muted
                                     playsInline
-                                    style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                    controls
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        minHeight: '400px',
+                                        maxHeight: '600px',
+                                        objectFit: 'contain',
+                                        backgroundColor: '#1a1a1a',
+                                        border: '2px solid #333'
+                                    }}
+                                    onLoadedMetadata={(e) => {
+                                        console.log("Local video metadata loaded, dimensions:", e.currentTarget.videoWidth, "x", e.currentTarget.videoHeight);
+                                        e.currentTarget.play().catch(err => console.error("Play error:", err));
+                                    }}
                                 />
                             </div>
                         </div>
@@ -489,7 +578,20 @@ export default function RoomPage() {
                                     ref={remoteVideoRef}
                                     autoPlay
                                     playsInline
-                                    style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                    controls
+                                    style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        minHeight: '400px',
+                                        maxHeight: '600px',
+                                        objectFit: 'contain',
+                                        backgroundColor: '#1a1a1a',
+                                        border: '2px solid #333'
+                                    }}
+                                    onLoadedMetadata={(e) => {
+                                        console.log("Remote video metadata loaded, dimensions:", e.currentTarget.videoWidth, "x", e.currentTarget.videoHeight);
+                                        e.currentTarget.play().catch(err => console.error("Play error:", err));
+                                    }}
                                 />
                             </div>
                         </div>
