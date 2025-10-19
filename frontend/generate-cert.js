@@ -80,10 +80,10 @@ const pemKey = forge.pki.privateKeyToPem(keys.privateKey);
 const pemCert = forge.pki.certificateToPem(cert);
 
 // Write to files
-fs.writeFileSync("./key.pem", pemKey);
-fs.writeFileSync("./cert.pem", pemCert);
+fs.writeFileSync("frontend/key.pem", pemKey);
+fs.writeFileSync("frontend/cert.pem", pemCert);
 
 console.log("SSL certificates generated successfully!");
 console.log("Files created:");
-console.log("  - backend/key.pem");
-console.log("  - backend/cert.pem");
+console.log("  - frontend/key.pem");
+console.log("  - frontend/cert.pem");

@@ -1,4 +1,6 @@
 const express = require('express');
+const https = require("https");
+const fs = require("fs");
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
@@ -7,11 +9,19 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const server = http.createServer(app);
+// Load SSL certificates
+const httpsOptions = {
+    key: fs.readFileSync("./key.pem"),
+    cert: fs.readFileSync("./cert.pem"),
+    ca: fs.readFileSync("./cert.pem"),
+};
+
+const server = https.createServer(httpsOptions, app);
 const io = new Server(server, {
     cors: {
-        origin: "http://localhost:3000",
-        methods: ["GET", "POST"]
+        origin: ["https://localhost:3000", "http://localhost:3000"],
+        methods: ["GET", "POST"],
+        credentials: true
     }
 });
 

@@ -46,7 +46,9 @@ export default function RoomPage() {
 
     // Initialize socket connection
     useEffect(() => {
-        const newSocket = io("http://localhost:5010");
+        const newSocket = io("https://localhost:5010", {
+            rejectUnauthorized: false // For development with self-signed certificates
+        });
         setSocket(newSocket);
 
         const randomUserId = `${userName}-${Math.random().toString(36).substr(2, 6)}`;
@@ -163,8 +165,44 @@ export default function RoomPage() {
         });
 
         socket.on("user-started-sharing", (peerId: string) => {
+            console.log(`Received user-started-sharing event for: ${peerId}`);
             setSharingPeerId(peerId);
             setStatusMessage(`${peerId} started sharing their screen`);
+
+            // Initialize WebRTC manager for receiving if not already created
+            if (!webrtcManagerRef.current && socket) {
+                console.log("Creating WebRTC manager for receiving stream...");
+                const manager = new WebRTCManager(
+                    socket,
+                    userId,
+                    (remotePeerId: string, stream: MediaStream) => {
+                        console.log("Received remote stream from:", remotePeerId);
+                        console.log("Stream tracks:", stream.getTracks().map(t => `${t.kind}: ${t.enabled}, readyState: ${t.readyState}`));
+
+                        if (remoteVideoRef.current) {
+                            console.log("Setting remote video srcObject with stream:", stream);
+                            remoteVideoRef.current.srcObject = stream;
+                            setSharingPeerId(remotePeerId);
+
+                            // Ensure the remote video plays
+                            remoteVideoRef.current.play().then(() => {
+                                console.log("Remote video started playing successfully");
+                            }).catch(err => {
+                                console.error("Error playing remote video:", err);
+                            });
+                        }
+                    },
+                    (remotePeerId: string) => {
+                        console.log("Peer disconnected:", remotePeerId);
+                        if (sharingPeerId === remotePeerId && remoteVideoRef.current) {
+                            remoteVideoRef.current.srcObject = null;
+                            setSharingPeerId(null);
+                        }
+                    }
+                );
+                webrtcManagerRef.current = manager;
+                console.log("WebRTC manager created for receiving");
+            }
         });
 
         socket.on("user-stopped-sharing", (peerId: string) => {
@@ -382,11 +420,20 @@ export default function RoomPage() {
             // Notify others that we started sharing
             socket.emit("start-sharing", roomId, userId);
 
-            // Create peer connections for existing users
-            const peerIds = Array.from(peers.keys());
-            for (const peerId of peerIds) {
-                await manager.createPeerConnection(peerId, true);
-            }
+            // Create peer connections for existing users AFTER a small delay
+            // This ensures the stream is fully set up before creating connections
+            setTimeout(async () => {
+                console.log("Creating peer connections for existing users...");
+                const peerIds = Array.from(peers.keys());
+                console.log("Peer IDs to connect to:", peerIds);
+
+                for (const peerId of peerIds) {
+                    console.log(`Creating peer connection for ${peerId}...`);
+                    await manager.createPeerConnection(peerId, true);
+                }
+
+                console.log("All peer connections created!");
+            }, 500);
 
             // Handle when user stops sharing via browser UI
             stream.getVideoTracks()[0].addEventListener("ended", () => {

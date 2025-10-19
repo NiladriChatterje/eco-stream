@@ -29,8 +29,8 @@ const pems = selfsigned.generate(attrs, {
 });
 
 // Write the certificate and private key to files
-fs.writeFileSync('key.pem', pems.private);
-fs.writeFileSync('cert.pem', pems.cert);
+fs.writeFileSync('backend/key.pem', pems.private);
+fs.writeFileSync('backend/cert.pem', pems.cert);
 
 console.log('SSL certificates generated successfully!');
 console.log('Private key saved to: key.pem');
