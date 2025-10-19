@@ -1,0 +1,509 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { io, Socket } from "socket.io-client";
+import { WebRTCManager } from "@/lib/webrtc";
+
+interface Peer {
+    id: string;
+    name: string;
+    isSharing: boolean;
+    joinedAt?: string;
+}
+
+interface RoomStats {
+    userCount: number;
+    users: Array<{
+        id: string;
+        socketId: string;
+        isSharing: boolean;
+        joinedAt: string;
+    }>;
+    sharingUser: string | null;
+}
+
+export default function RoomPage() {
+    const params = useParams();
+    const searchParams = useSearchParams();
+    const router = useRouter();
+    const roomId = params.roomId as string;
+    const userName = searchParams.get("name") || `User-${Math.random().toString(36).substr(2, 6)}`;
+
+    const [socket, setSocket] = useState<Socket | null>(null);
+    const [userId, setUserId] = useState("");
+    const [isConnected, setIsConnected] = useState(false);
+    const [isSharing, setIsSharing] = useState(false);
+    const [statusMessage, setStatusMessage] = useState("");
+    const [peers, setPeers] = useState<Map<string, Peer>>(new Map());
+    const [sharingPeerId, setSharingPeerId] = useState<string | null>(null);
+    const [roomStats, setRoomStats] = useState<RoomStats | null>(null);
+    const [joinNotifications, setJoinNotifications] = useState<string[]>([]);
+
+    const localVideoRef = useRef<HTMLVideoElement>(null);
+    const remoteVideoRef = useRef<HTMLVideoElement>(null);
+    const webrtcManagerRef = useRef<WebRTCManager | null>(null);
+
+    // Initialize socket connection
+    useEffect(() => {
+        const newSocket = io("http://localhost:5010");
+        setSocket(newSocket);
+
+        const randomUserId = `${userName}-${Math.random().toString(36).substr(2, 6)}`;
+        setUserId(randomUserId);
+
+        return () => {
+            newSocket.close();
+        };
+    }, [userName]);
+
+    // Auto-join room when component mounts
+    useEffect(() => {
+        if (!socket || !userId) return;
+
+        socket.emit("join-room", roomId, userId);
+        setIsConnected(true);
+        setStatusMessage(`Joined room: ${roomId}`);
+
+        return () => {
+            if (socket && roomId) {
+                socket.emit("leave-room", roomId, userId);
+            }
+        };
+    }, [socket, roomId, userId]);
+
+    // Setup socket event listeners
+    useEffect(() => {
+        if (!socket) return;
+
+        socket.on("connect", () => {
+            setStatusMessage("Connected to server");
+        });
+
+        socket.on("disconnect", () => {
+            setStatusMessage("Disconnected from server");
+            setIsConnected(false);
+        });
+
+        socket.on("user-joined", (peerId: string) => {
+            const message = `${peerId} joined the room`;
+            setStatusMessage(message);
+
+            // Add to join notifications with auto-remove after 5 seconds
+            setJoinNotifications(prev => [...prev, message]);
+            setTimeout(() => {
+                setJoinNotifications(prev => prev.filter(notif => notif !== message));
+            }, 5000);
+
+            // Add the new user to peers state
+            setPeers((prev) => {
+                const newPeers = new Map(prev);
+                newPeers.set(peerId, {
+                    id: peerId,
+                    name: peerId,
+                    isSharing: false,
+                    joinedAt: new Date().toISOString()
+                });
+                return newPeers;
+            });
+        });
+
+        socket.on("existing-users", (users: string[]) => {
+            setStatusMessage(`${users.length} user(s) already in the room`);
+
+            // Update peers state with existing users
+            setPeers((prev) => {
+                const newPeers = new Map(prev);
+                users.forEach((userId) => {
+                    newPeers.set(userId, {
+                        id: userId,
+                        name: userId,
+                        isSharing: false
+                    });
+                });
+                return newPeers;
+            });
+
+            // Create peer connections for existing users if we're sharing
+            if (webrtcManagerRef.current && isSharing) {
+                users.forEach((peerId) => {
+                    webrtcManagerRef.current!.createPeerConnection(peerId, true);
+                });
+            }
+        });
+
+        socket.on("user-left", (peerId: string) => {
+            const message = `${peerId} left the room`;
+            setStatusMessage(message);
+
+            // Add to join notifications with auto-remove after 5 seconds
+            setJoinNotifications(prev => [...prev, message]);
+            setTimeout(() => {
+                setJoinNotifications(prev => prev.filter(notif => notif !== message));
+            }, 5000);
+
+            // Remove user from peers state
+            setPeers((prev) => {
+                const newPeers = new Map(prev);
+                newPeers.delete(peerId);
+                return newPeers;
+            });
+
+            if (webrtcManagerRef.current) {
+                webrtcManagerRef.current.removePeer(peerId);
+            }
+
+            // If the sharing peer left, clear the remote video
+            if (sharingPeerId === peerId) {
+                setSharingPeerId(null);
+                if (remoteVideoRef.current) {
+                    remoteVideoRef.current.srcObject = null;
+                }
+            }
+        });
+
+        socket.on("user-started-sharing", (peerId: string) => {
+            setSharingPeerId(peerId);
+            setStatusMessage(`${peerId} started sharing their screen`);
+        });
+
+        socket.on("user-stopped-sharing", (peerId: string) => {
+            if (sharingPeerId === peerId) {
+                setSharingPeerId(null);
+                if (remoteVideoRef.current) {
+                    remoteVideoRef.current.srcObject = null;
+                }
+            }
+            setStatusMessage(`${peerId} stopped sharing`);
+        });
+
+        // Handle room users updates from backend
+        socket.on("room-users-updated", (users: Array<{ id: string, socketId: string, isSharing: boolean }>) => {
+            console.log("Room users updated:", users);
+            setPeers((prev) => {
+                const newPeers = new Map();
+                users.forEach((user) => {
+                    if (user.id !== userId) { // Don't include ourselves
+                        newPeers.set(user.id, {
+                            id: user.id,
+                            name: user.id,
+                            isSharing: user.isSharing
+                        });
+
+                        // Update sharing state
+                        if (user.isSharing && !sharingPeerId) {
+                            setSharingPeerId(user.id);
+                        }
+                    }
+                });
+                return newPeers;
+            });
+
+            // If we're sharing, create connections for new users
+            if (webrtcManagerRef.current && isSharing) {
+                users.forEach((user) => {
+                    if (user.id !== userId) {
+                        webrtcManagerRef.current!.createPeerConnection(user.id, true);
+                    }
+                });
+            }
+        });
+
+        // Handle room statistics updates
+        socket.on("room-stats-updated", (stats: RoomStats) => {
+            console.log("Room stats updated:", stats);
+            setRoomStats(stats);
+        });
+
+        socket.on(
+            "offer",
+            async (data: { offer: RTCSessionDescriptionInit; from: string }) => {
+                if (webrtcManagerRef.current) {
+                    await webrtcManagerRef.current.handleOffer(data.from, data.offer);
+                }
+            }
+        );
+
+        socket.on(
+            "answer",
+            async (data: { answer: RTCSessionDescriptionInit; from: string }) => {
+                if (webrtcManagerRef.current) {
+                    await webrtcManagerRef.current.handleAnswer(data.from, data.answer);
+                }
+            }
+        );
+
+        socket.on(
+            "ice-candidate",
+            async (data: { candidate: RTCIceCandidateInit; from: string }) => {
+                if (webrtcManagerRef.current) {
+                    await webrtcManagerRef.current.handleIceCandidate(
+                        data.from,
+                        data.candidate
+                    );
+                }
+            }
+        );
+
+        return () => {
+            socket.off("connect");
+            socket.off("disconnect");
+            socket.off("user-joined");
+            socket.off("existing-users");
+            socket.off("user-left");
+            socket.off("user-started-sharing");
+            socket.off("user-stopped-sharing");
+            socket.off("room-users-updated");
+            socket.off("room-stats-updated");
+            socket.off("offer");
+            socket.off("answer");
+            socket.off("ice-candidate");
+        };
+    }, [socket, isSharing, roomId, sharingPeerId, userId]);
+
+    const startSharing = async () => {
+        if (!socket) {
+            setStatusMessage("Not connected to server");
+            return;
+        }
+
+        try {
+            // Initialize WebRTC manager
+            const manager = new WebRTCManager(
+                socket,
+                userId,
+                (peerId: string, stream: MediaStream) => {
+                    // Handle incoming remote stream from other users
+                    console.log("Received remote stream from:", peerId);
+                    if (remoteVideoRef.current) {
+                        remoteVideoRef.current.srcObject = stream;
+                        setSharingPeerId(peerId);
+                    }
+                },
+                (peerId: string) => {
+                    // Handle peer disconnection
+                    console.log("Peer disconnected:", peerId);
+                    if (sharingPeerId === peerId && remoteVideoRef.current) {
+                        remoteVideoRef.current.srcObject = null;
+                        setSharingPeerId(null);
+                    }
+                }
+            );
+
+            webrtcManagerRef.current = manager;
+
+            // Start screen sharing
+            const stream = await manager.startScreenShare();
+
+            // Display local stream
+            if (localVideoRef.current) {
+                localVideoRef.current.srcObject = stream;
+            }
+
+            setIsSharing(true);
+            setStatusMessage("Screen sharing started");
+
+            // Notify others that we started sharing
+            socket.emit("start-sharing", roomId, userId);
+
+            // Create peer connections for existing users
+            const peerIds = Array.from(peers.keys());
+            for (const peerId of peerIds) {
+                await manager.createPeerConnection(peerId, true);
+            }
+
+            // Handle when user stops sharing via browser UI
+            stream.getVideoTracks()[0].addEventListener("ended", () => {
+                stopSharing();
+            });
+        } catch (error) {
+            console.error("Error starting screen share:", error);
+            setStatusMessage("Failed to start screen sharing");
+        }
+    };
+
+    const stopSharing = () => {
+        if (webrtcManagerRef.current) {
+            webrtcManagerRef.current.cleanup();
+            webrtcManagerRef.current = null;
+        }
+
+        if (localVideoRef.current) {
+            localVideoRef.current.srcObject = null;
+        }
+
+        if (socket) {
+            socket.emit("stop-sharing", roomId, userId);
+        }
+
+        setIsSharing(false);
+        setStatusMessage("Screen sharing stopped");
+    };
+
+    const leaveRoom = () => {
+        if (isSharing) {
+            stopSharing();
+        }
+        router.push("/");
+    };
+
+    const copyRoomLink = () => {
+        const link = `${window.location.origin}/room/${roomId}`;
+        navigator.clipboard.writeText(link);
+        setStatusMessage("Room link copied to clipboard!");
+    };
+
+    // Format time since joined
+    const formatTimeSince = (timestamp: string) => {
+        const now = new Date();
+        const joined = new Date(timestamp);
+        const diffMs = now.getTime() - joined.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 1) return "just now";
+        if (diffMins < 60) return `${diffMins}m ago`;
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) return `${diffHours}h ago`;
+        return `${Math.floor(diffHours / 24)}d ago`;
+    };
+
+    return (
+        <div className="container">
+            <div className="header">
+                <h1>🎥 Room: {roomId}</h1>
+                <p>Connected as: {userName}</p>
+            </div>
+
+            <div className="main-content">
+                {statusMessage && (
+                    <div
+                        className={`status-message ${statusMessage.includes("Failed") || statusMessage.includes("Error")
+                            ? "status-error"
+                            : statusMessage.includes("started") ||
+                                statusMessage.includes("copied")
+                                ? "status-success"
+                                : "status-info"
+                            }`}
+                    >
+                        {statusMessage}
+                    </div>
+                )}
+
+                {/* Join/Leave Notifications */}
+                {joinNotifications.length > 0 && (
+                    <div className="notifications-container">
+                        {joinNotifications.map((notification, index) => (
+                            <div key={index} className="notification-item">
+                                {notification}
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                <div className="control-panel">
+                    <div className="button-row">
+                        {!isSharing ? (
+                            <button onClick={startSharing} className="button-success">
+                                📺 Start Screen Sharing
+                            </button>
+                        ) : (
+                            <button onClick={stopSharing} className="button-danger">
+                                ⏹️ Stop Sharing
+                            </button>
+                        )}
+                        <button onClick={copyRoomLink} className="button-secondary">
+                            🔗 Copy Room Link
+                        </button>
+                        <button onClick={leaveRoom} className="button-danger">
+                            🚪 Leave Room
+                        </button>
+                    </div>
+
+                    <div className="peers-section">
+                        <h3>👥 People in Room ({roomStats?.userCount || peers.size + 1})</h3>
+                        <div className="peer-list">
+                            <div className="peer-item peer-you">
+                                <div className="peer-info">
+                                    <span className="peer-name">{userName} (You)</span>
+                                    <span className="peer-status">
+                                        {isSharing && "🎥 Sharing"}
+                                        <span className="online-indicator">🟢</span>
+                                    </span>
+                                </div>
+                            </div>
+                            {Array.from(peers.values()).map((peer) => (
+                                <div key={peer.id} className="peer-item">
+                                    <div className="peer-info">
+                                        <span className="peer-name">{peer.name}</span>
+                                        <span className="peer-status">
+                                            {peer.isSharing && "🎥 Sharing"}
+                                            <span className="online-indicator">🟢</span>
+                                            {peer.joinedAt && (
+                                                <span className="join-time">
+                                                    {formatTimeSince(peer.joinedAt)}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Room Statistics */}
+                        {roomStats && (
+                            <div className="room-stats">
+                                <div className="stats-item">
+                                    <span>Total Users: {roomStats.userCount}</span>
+                                </div>
+                                {roomStats.sharingUser && (
+                                    <div className="stats-item">
+                                        <span>Currently Sharing: {roomStats.sharingUser}</span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="video-section">
+                    {isSharing && (
+                        <div className="video-container-large">
+                            <div className="video-wrapper">
+                                <div className="video-label">Your Screen (Preview)</div>
+                                <video
+                                    ref={localVideoRef}
+                                    autoPlay
+                                    muted
+                                    playsInline
+                                    style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                            </div>
+                        </div>
+                    )}                    {sharingPeerId && !isSharing && (
+                        <div className="video-container-large">
+                            <div className="video-wrapper">
+                                <div className="video-label">
+                                    {peers.get(sharingPeerId)?.name || sharingPeerId}'s Screen
+                                </div>
+                                <video
+                                    ref={remoteVideoRef}
+                                    autoPlay
+                                    playsInline
+                                    style={{ width: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {!isSharing && !sharingPeerId && (
+                        <div className="waiting-message">
+                            <div className="waiting-icon">📺</div>
+                            <h2>Waiting for someone to share their screen...</h2>
+                            <p>Click "Start Screen Sharing" to broadcast your screen to everyone in this room</p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
