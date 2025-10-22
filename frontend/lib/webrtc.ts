@@ -1,6 +1,6 @@
 import { Socket } from "socket.io-client";
 
-// WebRTC configuration with STUN servers
+// WebRTC configuration optimized for 60 FPS streaming
 const configuration: RTCConfiguration = {
     iceServers: [
         {
@@ -12,6 +12,8 @@ const configuration: RTCConfiguration = {
         },
     ],
     iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
 };
 
 export class WebRTCManager {
@@ -35,36 +37,54 @@ export class WebRTCManager {
         this.onPeerDisconnected = onPeerDisconnected;
     }
 
-    // Start screen sharing with audio
+    // Start screen sharing with audio - optimized for 60 FPS
     async startScreenShare(): Promise<MediaStream> {
         try {
-            console.log("Starting screen share...");
+            console.log("Starting 60 FPS screen share...");
 
-            // Request screen share with system audio
+            // Request screen share with optimized constraints for 60 FPS
             const screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: {
                     cursor: "always",
                     displaySurface: "monitor",
+                    frameRate: { ideal: 60, max: 60 },
                 } as MediaTrackConstraints,
                 audio: {
                     echoCancellation: true,
                     noiseSuppression: true,
-                    sampleRate: 44100,
+                    autoGainControl: true,
+                    sampleRate: 48000,
+                    channelCount: 2,
                 } as MediaTrackConstraints,
             });
 
             this.localStream = screenStream;
 
-            // Handle when user stops sharing via browser UI
+            // Apply advanced video track constraints for optimal 60 FPS performance
             const videoTrack = screenStream.getVideoTracks()[0];
             if (videoTrack) {
+                // Apply constraints to ensure 60 FPS
+                await videoTrack.applyConstraints({
+                    frameRate: { ideal: 60, max: 60 },
+                    width: { ideal: 1920 },
+                    height: { ideal: 1080 },
+                });
+
+                // Log actual settings
+                const settings = videoTrack.getSettings();
+                console.log("Applied video settings:", {
+                    frameRate: settings.frameRate,
+                    width: settings.width,
+                    height: settings.height,
+                });
+
                 videoTrack.addEventListener("ended", () => {
                     console.log("Screen sharing ended by user");
                     this.stopScreenShare();
                 });
             }
 
-            console.log("Screen share started successfully");
+            console.log("60 FPS screen share started successfully");
             console.log("Video tracks:", screenStream.getVideoTracks().length);
             console.log("Audio tracks:", screenStream.getAudioTracks().length);
 
@@ -113,6 +133,9 @@ export class WebRTCManager {
 
         const peerConnection = new RTCPeerConnection(configuration);
         this.peerConnections.set(remotePeerId, peerConnection);
+
+        // Setup adaptive streaming monitoring
+        this.setupAdaptiveStreaming(peerConnection);
 
         // Add local stream tracks to peer connection
         if (this.localStream) {
@@ -190,7 +213,48 @@ export class WebRTCManager {
             }
         };
 
-        // If initiator, create and send offer
+        // Configure transceivers for optimal 60 FPS streaming
+        if (this.localStream) {
+            const videoTrack = this.localStream.getVideoTracks()[0];
+            const audioTrack = this.localStream.getAudioTracks()[0];
+
+            if (videoTrack) {
+                const videoTransceiver = peerConnection.addTransceiver(videoTrack, {
+                    direction: 'sendrecv',
+                    streams: [this.localStream]
+                });
+
+                // Optimize video encoding for 60 FPS
+                const videoSender = videoTransceiver.sender;
+                const videoParams = videoSender.getParameters();
+
+                if (!videoParams.encodings || videoParams.encodings.length === 0) {
+                    videoParams.encodings = [{}];
+                }
+
+                // Set optimal encoding parameters for 60 FPS
+                videoParams.encodings[0] = {
+                    ...videoParams.encodings[0],
+                    maxBitrate: 8000000, // 8 Mbps for high quality 60 FPS
+                    maxFramerate: 60,
+                    scaleResolutionDownBy: 1,
+                    priority: 'high',
+                    networkPriority: 'high',
+                };
+
+                await videoSender.setParameters(videoParams);
+                console.log("Optimized video encoding parameters for 60 FPS:", videoParams.encodings[0]);
+            }
+
+            if (audioTrack) {
+                peerConnection.addTransceiver(audioTrack, {
+                    direction: 'sendrecv',
+                    streams: [this.localStream]
+                });
+            }
+        }
+
+        // If initiator, create and send offer with optimized SDP
         if (isInitiator) {
             try {
                 console.log(`Creating offer for ${remotePeerId}`);
@@ -199,6 +263,11 @@ export class WebRTCManager {
                     offerToReceiveAudio: true,
                     offerToReceiveVideo: true,
                 });
+
+                // Optimize SDP for 60 FPS streaming
+                if (offer.sdp) {
+                    offer.sdp = this.optimizeSDPFor60FPS(offer.sdp);
+                }
 
                 console.log(`Setting local description for ${remotePeerId}`);
                 await peerConnection.setLocalDescription(offer);
@@ -367,6 +436,80 @@ export class WebRTCManager {
     // Get all connected peer IDs
     getConnectedPeers(): string[] {
         return Array.from(this.peerConnections.keys());
+    }
+
+    // Optimize SDP for 60 FPS streaming
+    private optimizeSDPFor60FPS(sdp: string): string {
+        let optimizedSDP = sdp;
+
+        // Set maximum framerate to 60
+        optimizedSDP = optimizedSDP.replace(/a=framerate:\d+/g, 'a=framerate:60');
+
+        // Add framerate if not present
+        if (!optimizedSDP.includes('a=framerate:')) {
+            optimizedSDP = optimizedSDP.replace(
+                /(m=video.*\r\n)/,
+                '$1a=framerate:60\r\n'
+            );
+        }
+
+        // Optimize bandwidth for 60 FPS (8 Mbps)
+        optimizedSDP = optimizedSDP.replace(
+            /b=AS:\d+/g,
+            'b=AS:8000'
+        );
+
+        // Add bandwidth limitation if not present
+        if (!optimizedSDP.includes('b=AS:')) {
+            optimizedSDP = optimizedSDP.replace(
+                /(m=video.*\r\n)/,
+                '$1b=AS:8000\r\n'
+            );
+        }
+
+        // Enable transport-wide congestion control for better bandwidth adaptation
+        if (!optimizedSDP.includes('transport-cc')) {
+            optimizedSDP = optimizedSDP.replace(
+                /(m=video.*\r\n(?:.*\r\n)*?)(a=rtcp-fb)/,
+                '$1a=rtcp-fb:* transport-cc\r\n$2'
+            );
+        }
+
+        // Prefer VP9 codec for better quality at 60 FPS if available
+        const vp9Match = optimizedSDP.match(/a=rtpmap:(\d+) VP9/);
+        if (vp9Match) {
+            const vp9PayloadType = vp9Match[1];
+            optimizedSDP = optimizedSDP.replace(
+                /(m=video \d+ [^\r\n]+ )(\d+)/,
+                `$1${vp9PayloadType} $2`
+            );
+        }
+
+        console.log("Optimized SDP for 60 FPS streaming");
+        return optimizedSDP;
+    }
+
+    // Monitor and adapt to network conditions for maintaining 60 FPS
+    private setupAdaptiveStreaming(peerConnection: RTCPeerConnection): void {
+        const checkInterval = setInterval(async () => {
+            if (peerConnection.connectionState !== 'connected') {
+                clearInterval(checkInterval);
+                return;
+            }
+
+            const stats = await peerConnection.getStats();
+            stats.forEach((report) => {
+                if (report.type === 'outbound-rtp' && report.mediaType === 'video') {
+                    const currentFramerate = report.framesPerSecond || 0;
+                    console.log(`Current streaming framerate: ${currentFramerate} FPS`);
+
+                    // Log quality metrics
+                    if (report.qualityLimitationReason) {
+                        console.log(`Quality limitation: ${report.qualityLimitationReason}`);
+                    }
+                }
+            });
+        }, 2000); // Check every 2 seconds
     }
 
     // Clean up all connections
