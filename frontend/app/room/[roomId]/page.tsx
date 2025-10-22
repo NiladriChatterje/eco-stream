@@ -4,6 +4,15 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { io, Socket } from "socket.io-client";
 import { WebRTCManager } from "@/lib/webrtc";
+import {
+    MdScreenShare,
+    MdStopScreenShare,
+    MdContentCopy,
+    MdExitToApp,
+    MdPeople,
+    MdMonitor,
+    MdCircle
+} from "react-icons/md";
 
 interface Peer {
     id: string;
@@ -493,7 +502,10 @@ export default function RoomPage() {
     return (
         <div className="container">
             <div className="header">
-                <h1>🎥 Room: {roomId}</h1>
+                <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
+                    <MdMonitor size={36} style={{ color: '#3b82f6' }} />
+                    Room: {roomId}
+                </h1>
                 <p>Connected as: {userName}</p>
             </div>
 
@@ -526,31 +538,43 @@ export default function RoomPage() {
                 <div className="control-panel">
                     <div className="button-row">
                         {!isSharing ? (
-                            <button onClick={startSharing} className="button-success">
-                                📺 Start Screen Sharing
+                            <button onClick={startSharing} className="button-success" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <MdScreenShare size={20} />
+                                Start Screen Sharing
                             </button>
                         ) : (
-                            <button onClick={stopSharing} className="button-danger">
-                                ⏹️ Stop Sharing
+                            <button onClick={stopSharing} className="button-danger" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <MdStopScreenShare size={20} />
+                                Stop Sharing
                             </button>
                         )}
-                        <button onClick={copyRoomLink} className="button-secondary">
-                            🔗 Copy Room Link
+                        <button onClick={copyRoomLink} className="button-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <MdContentCopy size={18} />
+                            Copy Room Link
                         </button>
-                        <button onClick={leaveRoom} className="button-danger">
-                            🚪 Leave Room
+                        <button onClick={leaveRoom} className="button-danger" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <MdExitToApp size={20} />
+                            Leave Room
                         </button>
                     </div>
 
                     <div className="peers-section">
-                        <h3>👥 People in Room ({roomStats?.userCount || peers.size + 1})</h3>
+                        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <MdPeople size={22} />
+                            People in Room ({roomStats?.userCount || peers.size + 1})
+                        </h3>
                         <div className="peer-list">
                             <div className="peer-item peer-you">
                                 <div className="peer-info">
                                     <span className="peer-name">{userName} (You)</span>
                                     <span className="peer-status">
-                                        {isSharing && "🎥 Sharing"}
-                                        <span className="online-indicator">🟢</span>
+                                        {isSharing && (
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <MdScreenShare size={14} />
+                                                Sharing
+                                            </span>
+                                        )}
+                                        <MdCircle size={10} className="online-indicator" style={{ color: '#10b981' }} />
                                     </span>
                                 </div>
                             </div>
@@ -559,8 +583,13 @@ export default function RoomPage() {
                                     <div className="peer-info">
                                         <span className="peer-name">{peer.name}</span>
                                         <span className="peer-status">
-                                            {peer.isSharing && "🎥 Sharing"}
-                                            <span className="online-indicator">🟢</span>
+                                            {peer.isSharing && (
+                                                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <MdScreenShare size={14} />
+                                                    Sharing
+                                                </span>
+                                            )}
+                                            <MdCircle size={10} className="online-indicator" style={{ color: '#10b981' }} />
                                             {peer.joinedAt && (
                                                 <span className="join-time">
                                                     {formatTimeSince(peer.joinedAt)}
@@ -646,7 +675,7 @@ export default function RoomPage() {
 
                     {!isSharing && !sharingPeerId && (
                         <div className="waiting-message">
-                            <div className="waiting-icon">📺</div>
+                            <MdMonitor size={80} style={{ color: '#64748b', marginBottom: '20px' }} />
                             <h2>Waiting for someone to share their screen...</h2>
                             <p>Click "Start Screen Sharing" to broadcast your screen to everyone in this room</p>
                         </div>

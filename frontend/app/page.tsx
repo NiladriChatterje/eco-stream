@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MdMonitor, MdPerson, MdLogin } from "react-icons/md";
 
 export default function Home() {
     const [roomId, setRoomId] = useState("");
@@ -29,7 +30,10 @@ export default function Home() {
     return (
         <div className="container">
             <div className="header">
-                <h1>🎥 Screen Sharing Platform</h1>
+                <h1 style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
+                    <MdMonitor size={42} style={{ color: '#3b82f6' }} />
+                    Screen Sharing Platform
+                </h1>
                 <p>WebRTC-based real-time screen and audio streaming</p>
             </div>
 
@@ -40,12 +44,14 @@ export default function Home() {
 
                     <div className="control-panel">
                         <div className="input-group">
+                            <MdPerson size={20} style={{ color: '#94a3b8', marginLeft: '12px' }} />
                             <input
                                 type="text"
                                 placeholder="Your Name (optional)"
                                 value={userName}
                                 onChange={(e) => setUserName(e.target.value)}
                                 onKeyPress={handleKeyPress}
+                                style={{ paddingLeft: '8px' }}
                             />
                         </div>
 
@@ -57,7 +63,8 @@ export default function Home() {
                                 onChange={(e) => setRoomId(e.target.value)}
                                 onKeyPress={handleKeyPress}
                             />
-                            <button onClick={joinRoom} disabled={!roomId.trim()}>
+                            <button onClick={joinRoom} disabled={!roomId.trim()} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <MdLogin size={20} />
                                 Join Room
                             </button>
                         </div>
