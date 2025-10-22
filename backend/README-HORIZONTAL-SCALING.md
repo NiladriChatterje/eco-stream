@@ -177,6 +177,9 @@ curl https://localhost:5010/api/rooms
    - Use Redis AUTH
    - Enable TLS for Redis connections
    - Secure load balancer with proper SSL certificates
+   - Docker containers run as non-root user (nodejs:1001)
+   - Scan container images for vulnerabilities
+   - Apply security policies and network restrictions
 
 3. **Performance:**
    - Use Redis Cluster for high throughput

@@ -56,7 +56,7 @@ export default function RoomPage() {
     // Initialize socket connection
     useEffect(() => {
         const newSocket = io("https://localhost:5010", {
-            rejectUnauthorized: false // For development with self-signed certificates
+            rejectUnauthorized: false
         });
         setSocket(newSocket);
 
@@ -64,11 +64,14 @@ export default function RoomPage() {
         setUserId(randomUserId);
 
         return () => {
-            newSocket.close();
+            if (newSocket) {
+                newSocket.emit("leave-room", roomId, randomUserId);
+                newSocket.close();
+            }
         };
-    }, [userName]);
+    }, [userName, roomId]);
 
-    // Auto-join room when component mounts
+    // Join room when socket and userId are ready
     useEffect(() => {
         if (!socket || !userId) return;
 
@@ -77,19 +80,13 @@ export default function RoomPage() {
         setStatusMessage(`Joined room: ${roomId}`);
 
         return () => {
-            if (socket && roomId) {
-                socket.emit("leave-room", roomId, userId);
-            }
+            socket.emit("leave-room", roomId, userId);
         };
     }, [socket, roomId, userId]);
 
     // Setup socket event listeners
     useEffect(() => {
         if (!socket) return;
-
-        socket.on("connect", () => {
-            setStatusMessage("Connected to server");
-        });
 
         socket.on("disconnect", () => {
             setStatusMessage("Disconnected from server");
@@ -293,7 +290,6 @@ export default function RoomPage() {
         );
 
         return () => {
-            socket.off("connect");
             socket.off("disconnect");
             socket.off("user-joined");
             socket.off("existing-users");

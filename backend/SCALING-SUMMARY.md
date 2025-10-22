@@ -38,7 +38,14 @@ All room operations are now asynchronous:
 - `removeUserFromRoom()` → Redis-backed operation
 - `setUserSharing()` → Redis-backed operation
 
-### 4. Graceful Degradation
+### 4. Security Enhancements
+The Dockerfile now runs as a non-root user:
+- Creates dedicated `nodejs` user (UID 1001)
+- Changes ownership of application files
+- Runs application with minimal privileges
+- Reduces container security risks
+
+### 5. Graceful Degradation
 The system continues to work even if Redis connection fails:
 - Error handling on all Redis operations
 - Fallback logging for debugging
@@ -165,6 +172,9 @@ None - The API remains backward compatible.
 - [ ] Health checks implemented
 - [ ] Monitoring and alerting set up
 - [ ] Auto-scaling policies defined
+- [x] Non-root user configured in Docker
+- [ ] Container image scanning enabled
+- [ ] Security policies applied
 
 ## Troubleshooting
 
